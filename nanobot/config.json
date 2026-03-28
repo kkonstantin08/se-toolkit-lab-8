@@ -307,10 +307,12 @@
         "command": "python",
         "args": [
           "-m",
-          "mcp_lms"
+          "mcp_lms",
+          "http://localhost:42002"
         ],
         "env": {
-          "NANOBOT_LMS_BACKEND_URL": "http://localhost:42002"
+          "NANOBOT_LMS_BACKEND_URL": "http://localhost:42002",
+          "NANOBOT_LMS_API_KEY": "Kostyan0805"
         },
         "toolTimeout": 30,
         "enabledTools": [
