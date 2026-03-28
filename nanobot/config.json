@@ -16,6 +16,12 @@
     "sendProgress": true,
     "sendToolHints": false,
     "sendMaxRetries": 3,
+    "webchat": {
+      "enabled": true,
+      "allow_from": [
+        "*"
+      ]
+    },
     "dingtalk": {
       "enabled": false,
       "clientId": "",
@@ -161,8 +167,8 @@
   },
   "providers": {
     "custom": {
-      "apiKey": "h-Va6w76WeShkMD_dzz1VWh6MUX4sOOr7uII7HypX5wSlPyXWoBZ0hiUbi6wX4bfRpP5HDvXKLtKDoebxpFA9A",
-      "apiBase": "http://localhost:42005/v1",
+      "apiKey": "",
+      "apiBase": "",
       "extraHeaders": null
     },
     "azureOpenai": {
@@ -308,11 +314,11 @@
         "args": [
           "-m",
           "mcp_lms",
-          "http://localhost:42002"
+          ""
         ],
         "env": {
-          "NANOBOT_LMS_BACKEND_URL": "http://localhost:42002",
-          "NANOBOT_LMS_API_KEY": "Kostyan0805"
+          "NANOBOT_LMS_BACKEND_URL": "",
+          "NANOBOT_LMS_API_KEY": ""
         },
         "toolTimeout": 30,
         "enabledTools": [
