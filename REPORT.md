@@ -42,9 +42,9 @@ Automated checks completed:
 }
 ```
 
-Manual step still needed: add a screenshot of the Flutter chat after logging in with `NANOBOT_ACCESS_KEY`.
+Opened the Flutter web client at `/flutter`, logged in with `NANOBOT_ACCESS_KEY`, and verified that the agent responds through the WebSocket bridge.
 
-<!-- Screenshot of a conversation with the agent in the Flutter web app -->
+![Task 2B chat](task-2b-chat.png)
 
 ## Task 3A — Structured logging
 
