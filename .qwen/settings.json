@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat *)",
+      "Bash(docker compose *)",
+      "Bash(curl *)",
+      "Bash(python3 *)",
+      "Bash(sleep *)",
+      "Bash(mkdir *)",
+      "Bash(uv *)",
+      "Bash(true)",
+      "Bash(rm *)",
+      "Bash(git add *)",
+      "Bash(git restore *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)"
+    ]
+  },
+  "$version": 3
+}

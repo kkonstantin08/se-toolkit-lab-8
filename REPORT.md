@@ -170,15 +170,105 @@ When asked "Get trace 5c41bcca923a332d82e4be5c2f19181f":
 
 ## Task 4A — Multi-step investigation
 
-<!-- Paste the agent's response to "What went wrong?" showing chained log + trace investigation -->
+**Agent response to "Any errors in the last hour?"** (from nanobot logs at 09:19:57):
+
+```
+**Found 2 errors in the last hour**, all in the **Learning Management Service**.
+
+**Error Type:** Database connection failures
+- Error: `asyncpg.exceptions.InterfaceError: connection is closed`
+- Operation: SELECT query on the `item` table
+```
+
+**Trace evidence** (from nanobot logs at 09:22:01, trace `5c41bcca923a332d82e4be5c2f19181f`):
+
+```
+**Trace 5c41bcca923a332d82e4be5c2f19181f**
+
+| Span | Operation | Duration | Status |
+|------|-----------|----------|--------|
+| ...  | db_query  | ...      | ❌ ERROR |
+
+The db_query span failed with error "connection is closed".
+```
+
+**Backend log evidence** (PostgreSQL stopped):
+
+```
+backend-1  | 2026-03-28 09:16:05,105 INFO [app.db.items] - db_query
+backend-1  | 2026-03-28 09:16:05,117 ERROR [app.db.items] - db_query
+backend-1  |   error: (sqlalchemy.dialects.postgresql.asyncpg.InterfaceError) connection is closed
+backend-1  | 2026-03-28 09:16:05,122 INFO [app.main] - request_completed
+```
+
+The observability skill successfully chained: `logs_error_count` → `logs_search` → `traces_get` to provide a complete investigation.
+
+---
 
 ## Task 4B — Proactive health check
 
 <!-- Screenshot or transcript of the proactive health report that appears in the Flutter chat -->
 
+*Note: This checkpoint requires creating a cron job via the Flutter chat. The agent should be asked:*
+
+> Create a health check for this chat that runs every 2 minutes. Each run should check for backend errors in the last 2 minutes, inspect a trace if needed, and post a short summary here. If there are no recent errors, say the system looks healthy. Use your cron tool.
+
+*Then wait for the proactive report to appear in the chat.*
+
+---
+
 ## Task 4C — Bug fix and recovery
 
-<!-- 1. Root cause identified
-     2. Code fix (diff or description)
-     3. Post-fix response to "What went wrong?" showing the real underlying failure
-     4. Healthy follow-up report or transcript after recovery -->
+### 1. Root cause identified
+
+**Planted bug:** In `backend/app/routers/items.py`, the `get_items` endpoint catches all exceptions and returns a **404 NOT FOUND** error instead of letting the real database error (500) propagate:
+
+```python
+@router.get("/", response_model=list[ItemRecord])
+async def get_items(session: AsyncSession = Depends(get_session)):
+    """Get all items."""
+    try:
+        return await read_items(session)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Items not found",
+        ) from exc  # ← Bug: masks database errors as 404
+```
+
+**Why this is wrong:** A 404 means "resource not found", but when PostgreSQL is down, the actual error is a database connection failure (should be 500 Internal Server Error). This masks the real problem from observability tools and users.
+
+### 2. Code fix
+
+**Fix:** Remove the try/except wrapper to let exceptions propagate naturally. The global exception handler in `main.py` will handle it properly with a 500 status code.
+
+```python
+@router.get("/", response_model=list[ItemRecord])
+async def get_items(session: AsyncSession = Depends(get_session)):
+    """Get all items."""
+    return await read_items(session)  # ← Let exceptions propagate
+```
+
+### 3. Post-fix failure check
+
+After rebuilding and redeploying, with PostgreSQL stopped, the backend now returns the real error:
+
+```bash
+$ curl -v http://localhost:42001/items/ -H "Authorization: Bearer Kostyan0805"
+< HTTP/1.1 500 Internal Server Error
+{"detail":"[Errno -2] Name or service not known","type":"gaierror","path":"/items/","traceback":[...]}
+```
+
+**Before fix:** HTTP 404 "Items not found" (masked error)
+**After fix:** HTTP 500 with actual error details (proper error reporting)
+
+### 4. Healthy follow-up
+
+After restarting PostgreSQL, the system recovers:
+
+```bash
+$ curl -sf http://localhost:42001/items/ -H "Authorization: Bearer Kostyan0805"
+[{"title":"Lab 01 – Products, Architecture & Roles","id":1,"type":"lab",...}, ...]
+```
+
+The backend now correctly returns items when PostgreSQL is running, and properly reports 500 errors when the database is unavailable.
