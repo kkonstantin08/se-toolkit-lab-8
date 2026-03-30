@@ -16,7 +16,7 @@ def require_env(name: str) -> str:
         raise RuntimeError(f"Required environment variable is missing: {name}")
     return value
 
-
+##function for solving conficts
 def resolve_config() -> Path:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
