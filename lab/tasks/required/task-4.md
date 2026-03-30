@@ -18,19 +18,50 @@ The backend version in this lab contains a planted bug in a failure path. To sur
    - Fetch the matching trace
    - Summarize the findings concisely instead of dumping raw JSON
 
+   A good investigation flow is:
+
+   - `logs_error_count` on a fresh recent window
+   - `logs_search` scoped to the most likely failing service
+   - `traces_get` for the most relevant recent `trace_id`
+   - one short explanation that explicitly mentions both log evidence and trace evidence
+
 2. Stop PostgreSQL:
 
    ```terminal
    docker compose --env-file .env.docker.secret stop postgres
    ```
 
-3. Open the Flutter app, trigger a request, and keep that chat open. You will reuse the same chat in Part B.
+3. Open the Flutter app, trigger a request that makes nanobot list labs/items, and keep that chat open. You will reuse the same chat in Part B.
+
+   Good prompts for this planted bug are:
+
+   - **"What labs are available?"**
+   - **"List the labs"**
+   - **"Which lab should I explore?"**
+
+   These prompts typically make nanobot call the LMS tool that lists labs,
+   which reaches the backend `GET /items/` route. That route contains the
+   planted bug for this task.
+
+   Good nanobot logs to expect in this part include tool calls such as:
+
+   - `mcp_obs_logs_error_count`
+   - `mcp_obs_logs_search`
+   - `mcp_obs_traces_get`
 
 4. Ask the agent:
 
    **"What went wrong?"**
 
-   The response should be a single coherent investigation that uses both logs and traces.
+   The response should be a single coherent investigation that cites at least one recent error log and one matching trace, and names the affected service plus the root failing operation.
+
+   Trigger the failure immediately before asking so the agent works with fresh
+   observability data instead of stale older errors.
+
+   For this planted bug, the key discrepancy to notice is:
+
+   - logs and traces show a real PostgreSQL / SQLAlchemy failure
+   - the backend response path misreports it as `404 Items not found`
 
 <!-- STOP -->
 > [!CAUTION]
@@ -54,11 +85,14 @@ The backend version in this lab contains a planted bug in a failure path. To sur
 > [!IMPORTANT]
 > Do not refresh the Flutter page during this part. Cron jobs created from the web chat are tied to the current chat session.
 
+> [!IMPORTANT]
+> For this task, use the built-in `cron` tool for the recurring chat-bound health check. Do not substitute `HEARTBEAT.md` here.
+
 ### What to do in Part B
 
 1. In that same open Flutter chat, ask the agent:
 
-   > Create a health check for this chat that runs every 2 minutes. Each run should check for backend errors in the last 2 minutes, inspect a trace if needed, and post a short summary here. If there are no recent errors, say the system looks healthy. Use your cron tool.
+   > Create a health check for this chat that runs every 2 minutes using your cron tool. Each run should check for LMS/backend errors in the last 2 minutes, inspect a trace if needed, and post a short summary here. If there are no recent errors, say the system looks healthy.
 
 2. Ask the agent:
 
@@ -66,9 +100,16 @@ The backend version in this lab contains a planted bug in a failure path. To sur
 
    You should see the new health-check job.
 
+   Good nanobot logs to expect here include tool calls such as:
+
+   - `cron({"action":"add", ...})`
+   - `cron({"action":"list"})`
+
 3. While PostgreSQL is still stopped, trigger one more request so there is a fresh failure inside the 2-minute window.
 
 4. Wait for the next cron cycle. The agent should proactively post a health report into the same chat.
+
+   If your first scheduled report still says the system looks healthy, that usually means the failure was not triggered inside the most recent 2-minute window yet. Trigger one more LMS-backed request and wait for the next cycle.
 
 5. Add a screenshot or transcript of that proactive report to `REPORT.md` under `## Task 4B — Proactive health check`.
 
@@ -101,7 +142,11 @@ The backend version in this lab contains a planted bug in a failure path. To sur
 
 ### What to do in Part C
 
-1. Use the findings from Parts A and B to identify the planted bug in the backend code and fix it.
+1. Use the findings from Parts A and B to identify the planted bug in the backend failure-handling path and fix it.
+
+   Concretely: inspect the backend code that translates internal exceptions into HTTP responses. Find where the real database/backend failure is being hidden or misreported, and change that code so the true failure becomes visible.
+
+   The planted bug is in a failure path, so focus on code that translates backend exceptions into HTTP responses. Be suspicious of broad `except Exception` blocks that may hide the real cause.
 
 2. Rebuild and redeploy:
 
@@ -112,20 +157,35 @@ The backend version in this lab contains a planted bug in a failure path. To sur
 
 3. Trigger the failure path again after the redeploy:
    - Stop PostgreSQL
-   - Make a request through the Flutter app
+   - Make a request through the Flutter app that asks nanobot to list or choose labs
    - Ask the agent: **"What went wrong?"**
 
-   After your fix, the agent should now surface the real underlying backend or database failure instead of a broken exception-handling path.
+   Before the fix, this request path tends to return a misleading `404 Items not
+   found` even though PostgreSQL is down. After your fix, the agent should now
+   surface the real underlying backend or database failure instead of that
+   broken exception-handling path. When judging the result, focus on the newest
+   post-redeploy request rather than older stale logs or traces from before the
+   fix.
+
+   When verifying the fix, focus on the newest logs and traces after the redeploy. Older pre-fix `404` records may still be visible in broader time windows.
 
 4. Restart PostgreSQL.
 
-5. If the web chat disconnected during the redeploy, reopen `http://<your-vm-ip>:42002/flutter` and log in again.
+5. If the web chat disconnected during the redeploy, reopen `http://<your-vm-ip-address>:42002/flutter` and log in again.
 
 6. Create a fresh short health check in the current chat:
 
    > Create a health check for this chat that runs every 2 minutes. Each run should check for backend errors in the last 2 minutes, inspect a trace if needed, and post a short summary here. If there are no recent errors, say the system looks healthy. Use your cron tool.
 
 7. Wait for the next cron cycle. It should now report that the system looks healthy.
+
+   Good nanobot logs to expect after recovery include:
+
+   - `cron({"action":"add", ...})`
+   - `mcp_obs_logs_error_count({"minutes": 2})`
+   - a health report that says no recent backend errors were found
+
+   Older pre-fix logs and traces may still be visible in VictoriaLogs and VictoriaTraces for a while. For recovery verification, trust the newest post-redeploy request and the newest scheduled health report.
 
 8. Ask the agent to either change the health check to every 15 minutes or remove the test job.
 

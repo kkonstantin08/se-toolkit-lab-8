@@ -46,7 +46,7 @@ The backend already emits structured log events via OpenTelemetry.
    docker compose --env-file .env.docker.secret stop postgres
    ```
 
-   Check the logs again. You should see `db_query` with `level: "error"` and `request_completed` with `status: 500`.
+   Check the logs again. You should see `db_query` with an error-level record and a failed request status on the matching request. Depending on how the failure surfaces in your stack, this may be `404`, `500`, or another non-success status.
 
 4. Restart PostgreSQL:
 
@@ -54,7 +54,21 @@ The backend already emits structured log events via OpenTelemetry.
    docker compose --env-file .env.docker.secret start postgres
    ```
 
-5. Open the VictoriaLogs web UI at `http://<your-vm-ip>:42002/utils/victorialogs/select/vmui`. Run a LogsQL query that filters by service and error level. Compare how easy this is versus grepping `docker compose logs`.
+5. Open the VictoriaLogs web UI at `http://<your-vm-ip-address>:42002/utils/victorialogs/select/vmui`. Run a LogsQL query that filters by service and error level. Compare how easy this is versus grepping `docker compose logs`.
+
+   In this stack, the most useful fields are `service.name`, `severity`, `event`, and `trace_id`. A good query to start with is:
+
+   ```text
+   _time:1h service.name:"Learning Management Service" severity:ERROR
+   ```
+
+   If you want to focus only on the failure you just triggered, narrow the window further, for example:
+
+   ```text
+   _time:10m service.name:"Learning Management Service" severity:ERROR
+   ```
+
+   If the UI feels noisy, you may also query the VictoriaLogs HTTP API directly while debugging. Still use the UI for the screenshot in the checkpoint.
 
 <!-- STOP -->
 > [!CAUTION]
@@ -77,9 +91,24 @@ The backend already emits structured log events via OpenTelemetry.
 
 ### What to do in Part B
 
-1. Open the VictoriaTraces UI at `http://<your-vm-ip>:42002/utils/victoriatraces`.
+1. Open the VictoriaTraces UI at `http://<your-vm-ip-address>:42002/utils/victoriatraces`.
+
+   If you query VictoriaTraces directly over HTTP from inside the stack, use the Jaeger-compatible API exposed by VictoriaTraces itself. In this deployment that means URLs shaped like:
+
+   ```text
+   http://victoriatraces:10428/select/jaeger/api/traces?service=<name>&limit=<N>
+   http://victoriatraces:10428/select/jaeger/api/traces/<traceID>
+   ```
+
+   If the UI is difficult to navigate, it is fine to use the HTTP API to confirm you found the correct trace first, then return to the UI for screenshots.
 
 2. Trigger a request through the Flutter app and find the resulting trace. Inspect the span hierarchy — which services appear, how long each step took.
+
+   The easiest way to find the matching trace is:
+
+   - look up the request in logs first
+   - copy the `trace_id` field from the log record
+   - open that trace in VictoriaTraces
 
 3. Trigger a failure (stop PostgreSQL), make another request, and find that trace too. Compare the healthy and error traces — where does the error appear?
 
@@ -108,19 +137,38 @@ The agent still can't access logs or traces — only you can, through the UIs. L
 
 ### What to do in Part C
 
-1. Implement new MCP tools that query VictoriaLogs and VictoriaTraces. Add them to the existing MCP server in `mcp/mcp_lms/` or write a new MCP server. You need at least:
+1. Implement new MCP tools that query VictoriaLogs and VictoriaTraces. Add them to a separate MCP server such as `mcp/mcp-obs/`, or use an equivalent new MCP module. You need at least:
+
+   If you use the repository root `uv` workspace tooling, also uncomment the
+   matching `mcp/mcp-obs` lines in the root `pyproject.toml` under:
+
+   - `[tool.uv.workspace].members`
+   - `[tool.uv.sources]`
 
    **Log tools (VictoriaLogs HTTP API — port 9428):**
    - `logs_search` — search logs by keyword and/or time range
    - `logs_error_count` — count errors per service over a time window
 
-   > **Hint:** VictoriaLogs query API: `GET /select/logsql/query?query=<LogsQL>&limit=<N>`. Example: `_stream:{service="backend"} AND level:error`
+   > **Hint:** VictoriaLogs query API: `POST /select/logsql/query` or `GET /select/logsql/query?query=<LogsQL>&limit=<N>`.
+   >
+   > In this stack, the real field names are things like `service.name`, `severity`, `event`, and `trace_id`.
+   >
+   > Example:
+   >
+   > ```text
+   > _time:10m service.name:"Learning Management Service" severity:ERROR
+   > ```
 
    **Trace tools (VictoriaTraces HTTP API — port 10428, Jaeger-compatible):**
    - `traces_list` — list recent traces for a service
    - `traces_get` — fetch a specific trace by ID
 
-   > **Hint:** VictoriaTraces Jaeger API: `GET /jaeger/api/traces?service=<name>&limit=<N>` and `GET /jaeger/api/traces/<traceID>`
+   > **Hint:** In this deployment the VictoriaTraces service exposes the Jaeger-compatible API under `/select/jaeger/api/...`, for example:
+   >
+   > ```text
+   > GET /select/jaeger/api/traces?service=<name>&limit=<N>
+   > GET /select/jaeger/api/traces/<traceID>
+   > ```
 
 2. Register the new tools in your nanobot config (if you wrote a separate MCP server).
 
@@ -129,7 +177,35 @@ The agent still can't access logs or traces — only you can, through the UIs. L
    - If you find a trace ID in the logs, fetch the full trace
    - Summarize findings concisely — don't dump raw JSON
 
+   The repo-local workspace already includes a shared `structured-ui` skill for
+   generic choice/confirm/composite behavior on supported chat channels. Keep
+   your observability skill focused on observability reasoning rather than
+   duplicating that generic UI guidance.
+
 4. Redeploy and test. Ask the agent: **"Any errors in the last hour?"**
+
+   Good files to expect by the end of Part C:
+
+   - `mcp/mcp-obs/src/mcp_obs/server.py`
+   - `mcp/mcp-obs/src/mcp_obs/observability.py` or the equivalent new MCP module
+   - `docker-compose.yml` or your nanobot config/entrypoint wiring for the observability endpoints
+   - `nanobot/workspace/skills/observability/SKILL.md`
+
+   Good nanobot logs to expect after redeploy:
+
+   - `mcp_obs_logs_search`
+   - `mcp_obs_logs_error_count`
+   - `mcp_obs_traces_list`
+   - `mcp_obs_traces_get`
+
+   Intended reasoning flow for a good answer:
+
+   - `logs_error_count` to see whether there are recent errors
+   - `logs_search` to inspect the relevant service and extract a recent `trace_id`
+   - `traces_get` to inspect the failing request path
+   - a short summary instead of raw JSON
+
+   For this task, prefer a scoped prompt such as **"Any LMS backend errors in the last 10 minutes?"** so the answer is driven by fresh LMS telemetry instead of unrelated older errors from other services.
 
 <!-- STOP -->
 > [!CAUTION]
@@ -142,9 +218,15 @@ The agent still can't access logs or traces — only you can, through the UIs. L
 
 ### Checkpoint for Part C
 
-1. Ask the agent **"Any errors in the last hour?"** under normal conditions.
-2. Stop PostgreSQL, trigger a few requests, then ask the same question. The agent should report real errors.
+1. Ask the agent **"Any LMS backend errors in the last 10 minutes?"** under normal conditions.
+
+   If you still see unrelated historical errors, tighten the scope further by using an even narrower time window or explicitly asking about the LMS backend.
+
+2. Stop PostgreSQL, trigger a few LMS-backed requests, then ask **"Any LMS backend errors in the last 10 minutes?"** again. The agent should report the new backend errors you just caused, not just unrelated older errors from other services.
+   Trigger the failure and ask the question immediately afterward so the answer is based on fresh data from a narrow time window.
+
 3. Restart PostgreSQL.
+
 4. Paste both responses into `REPORT.md` under `## Task 3C — Observability MCP tools`.
 
 ---
@@ -156,5 +238,5 @@ The agent still can't access logs or traces — only you can, through the UIs. L
 - At least two MCP tools for querying VictoriaLogs are registered.
 - At least two MCP tools for querying VictoriaTraces are registered.
 - An observability skill exists and is loaded by the agent.
-- The agent answers "any errors in the last hour?" correctly under both normal and failure conditions.
+- The agent answers a scoped observability question such as "any LMS backend errors in the last 10 minutes?" correctly under both normal and failure conditions.
 - `REPORT.md` contains log excerpts, UI screenshots, and agent responses from all checkpoints.
