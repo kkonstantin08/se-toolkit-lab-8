@@ -53,7 +53,7 @@ def resolve_config() -> Path:
     )
     return RESOLVED_CONFIG_PATH
 
-
+##main function
 def main() -> None:
     resolved_config = resolve_config()
     os.execvp(
