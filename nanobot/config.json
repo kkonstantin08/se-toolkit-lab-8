@@ -324,6 +324,22 @@
         "enabledTools": [
           "*"
         ]
+      },
+      "observability": {
+        "type": "stdio",
+        "command": "python",
+        "args": [
+          "-m",
+          "mcp_observability"
+        ],
+        "env": {
+          "VICTORIALOGS_URL": "http://victorialogs:9428",
+          "VICTORIATRACES_URL": "http://victoriatraces:10428"
+        },
+        "toolTimeout": 30,
+        "enabledTools": [
+          "*"
+        ]
       }
     }
   }
